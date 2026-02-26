@@ -1,57 +1,88 @@
-const router = require('express').Router();
+const express = require('express');
+const router = express.Router();
 const pool = require('../db');
-const authMiddleware = require('../middleware/auth');
+const auth = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 
-// Setup upload foto
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = 'uploads/selfie';
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, `${Date.now()}-${req.user.id}${path.extname(file.originalname)}`);
-  }
+  destination: './uploads/selfie/',
+  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
 });
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage });
 
-// Check-in absensi dengan foto selfie
-router.post('/checkin', authMiddleware, upload.single('foto'), async (req, res) => {
-  const { matkul_id, latitude, longitude } = req.body;
-  const foto_path = req.file ? req.file.path : null;
-  const today = new Date().toISOString().split('T')[0];
-  const time_now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-
+// ── Absen Masuk atau Pulang ──────────────────────────────────────────────────
+router.post('/checkin', auth, upload.single('foto'), async (req, res) => {
   try {
-    // Cek sudah absen hari ini belum
-    const existing = await pool.query(
-      'SELECT * FROM absensi WHERE user_id = $1 AND matkul_id = $2 AND date = $3',
-      [req.user.id, matkul_id, today]
-    );
-    if (existing.rows.length > 0) return res.status(400).json({ message: 'Sudah absen hari ini' });
+    const { matkul_id, latitude, longitude, tipe } = req.body;
+    const foto = req.file ? req.file.filename : null;
+    const userId = req.user.id;
+    const now = new Date();
+    const date = now.toISOString().split('T')[0];
+    const time = now.toTimeString().split(' ')[0].substring(0, 5);
+    const tipeFinal = tipe || 'masuk';
 
-    const result = await pool.query(
-      `INSERT INTO absensi (user_id, matkul_id, date, time, status, foto, latitude, longitude)
-       VALUES ($1, $2, $3, $4, 'hadir', $5, $6, $7) RETURNING *`,
-      [req.user.id, matkul_id, today, time_now, foto_path, latitude, longitude]
-    );
-    res.json({ message: 'Absensi berhasil!', data: result.rows[0] });
+    if (tipeFinal === 'masuk') {
+      // Cek apakah sudah absen masuk hari ini
+      const existing = await pool.query(
+        'SELECT * FROM absensi WHERE user_id=$1 AND matkul_id=$2 AND date=$3 AND tipe=$4',
+        [userId, matkul_id, date, 'masuk']
+      );
+      if (existing.rows.length > 0) {
+        return res.json({ message: 'Sudah absen masuk hari ini!' });
+      }
+      await pool.query(
+        'INSERT INTO absensi (user_id, matkul_id, date, time, latitude, longitude, foto, status, tipe) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+        [userId, matkul_id, date, time, latitude||null, longitude||null, foto, 'hadir', 'masuk']
+      );
+    } else if (tipeFinal === 'pulang') {
+      // Cek apakah sudah absen masuk
+      const absenMasuk = await pool.query(
+        'SELECT * FROM absensi WHERE user_id=$1 AND matkul_id=$2 AND date=$3 AND tipe=$4',
+        [userId, matkul_id, date, 'masuk']
+      );
+      if (absenMasuk.rows.length === 0) {
+        return res.json({ message: 'Harus absen masuk dulu!' });
+      }
+      // Cek sudah absen pulang belum
+      const sudahPulang = await pool.query(
+        'SELECT * FROM absensi WHERE user_id=$1 AND matkul_id=$2 AND date=$3 AND tipe=$4',
+        [userId, matkul_id, date, 'pulang']
+      );
+      if (sudahPulang.rows.length > 0) {
+        return res.json({ message: 'Sudah absen pulang hari ini!' });
+      }
+      // Update absen masuk dengan waktu pulang
+      await pool.query(
+        'UPDATE absensi SET pulang_time=$1, pulang_latitude=$2, pulang_longitude=$3, pulang_foto=$4 WHERE user_id=$5 AND matkul_id=$6 AND date=$7 AND tipe=$8',
+        [time, latitude||null, longitude||null, foto, userId, matkul_id, date, 'masuk']
+      );
+      // Juga insert record pulang
+      await pool.query(
+        'INSERT INTO absensi (user_id, matkul_id, date, time, latitude, longitude, foto, status, tipe) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+        [userId, matkul_id, date, time, latitude||null, longitude||null, foto, 'hadir', 'pulang']
+      );
+    }
+
+    res.json({ message: 'Absensi berhasil!' });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    console.error(err);
+    res.status(500).json({ message: 'Error server: ' + err.message });
   }
 });
 
-// Get riwayat absensi mahasiswa
-router.get('/riwayat', authMiddleware, async (req, res) => {
+// ── Riwayat Mahasiswa (gabung masuk + pulang) ────────────────────────────────
+router.get('/riwayat', auth, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT a.*, mk.name as matkul_name, mk.code as matkul_code
+      SELECT 
+        a.id, a.matkul_id, a.date, a.time, a.status, a.tipe,
+        a.latitude, a.longitude, a.foto,
+        a.pulang_time, a.pulang_latitude, a.pulang_longitude,
+        m.name as matkul_name, m.code
       FROM absensi a
-      JOIN mata_kuliah mk ON a.matkul_id = mk.id
-      WHERE a.user_id = $1
+      JOIN mata_kuliah m ON a.matkul_id = m.id
+      WHERE a.user_id = $1 AND a.tipe = 'masuk'
       ORDER BY a.date DESC, a.time DESC
     `, [req.user.id]);
     res.json(result.rows);
@@ -60,41 +91,23 @@ router.get('/riwayat', authMiddleware, async (req, res) => {
   }
 });
 
-// Get semua absensi (admin)
-router.get('/semua', authMiddleware, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Akses ditolak' });
+// ── Semua Absensi (Admin) ────────────────────────────────────────────────────
+router.get('/semua', auth, async (req, res) => {
   try {
     const result = await pool.query(`
-      SELECT a.*, u.name as mahasiswa_name, u.nim, mk.name as matkul_name, mk.code
+      SELECT 
+        a.id, a.date, a.time, a.status, a.tipe,
+        a.latitude, a.longitude,
+        a.pulang_time, a.pulang_latitude, a.pulang_longitude,
+        u.name as mahasiswa_name, u.nim,
+        m.name as matkul_name
       FROM absensi a
       JOIN users u ON a.user_id = u.id
-      JOIN mata_kuliah mk ON a.matkul_id = mk.id
-      ORDER BY a.date DESC
+      JOIN mata_kuliah m ON a.matkul_id = m.id
+      WHERE a.tipe = 'masuk' OR a.tipe IS NULL
+      ORDER BY a.date DESC, a.time DESC
     `);
     res.json(result.rows);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Input izin/sakit
-router.post('/izin', authMiddleware, async (req, res) => {
-  const { matkul_id, status, keterangan } = req.body;
-  const today = new Date().toISOString().split('T')[0];
-
-  try {
-    const existing = await pool.query(
-      'SELECT * FROM absensi WHERE user_id = $1 AND matkul_id = $2 AND date = $3',
-      [req.user.id, matkul_id, today]
-    );
-    if (existing.rows.length > 0) return res.status(400).json({ message: 'Sudah ada data absensi hari ini' });
-
-    const result = await pool.query(
-      `INSERT INTO absensi (user_id, matkul_id, date, time, status, keterangan)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [req.user.id, matkul_id, today, '-', status, keterangan]
-    );
-    res.json({ message: 'Berhasil input ' + status, data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
