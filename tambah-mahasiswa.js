@@ -3,19 +3,19 @@ const bcrypt = require('bcryptjs');
 const pool = require('./db');
 
 const mahasiswa = [
-  { nim: '24021014', name: 'Tito Tarang', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021012', name: 'Eka Jimy', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021011', name: 'Vian Jedaut', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021006', name: 'Fatima Nadia', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021001', name: 'Saif Saifullah', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021002', name: 'Cristo Renggo', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021003', name: 'Aldi Moa', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021004', name: 'Ecak Muhtry', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021008', name: 'Dandi Jelaha', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021010', name: 'Febri Dima', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021009', name: 'Fano Jas', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021015', name: 'Fenan Jehaut', prodi: 'Teknik Informatika', semester: 1 },
-  { nim: '24021013', name: 'France Nono', prodi: 'Teknik Informatika', semester: 1 },
+  { nim: '24021014', name: 'Tito Tarang', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021012', name: 'Eka Jimy', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021011', name: 'Vian Jedaut', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021006', name: 'Fatima Nadia', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021001', name: 'Saif Saifullah', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021002', name: 'Cristo Renggo', prodi: 'Teknologi Informasi', semester: 4},
+  { nim: '24021003', name: 'Aldi Moa', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021004', name: 'Ecak Muhtry', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021008', name: 'Dandi Jelaha', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021010', name: 'Febri Dima', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021009', name: 'Fano Jas', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021015', name: 'Fenan Jehaut', prodi: 'Teknologi Informasi', semester: 4 },
+  { nim: '24021013', name: 'France Nono', prodi: 'Teknologi Informasi', semester: 4 },
 ];
 
 async function tambahMahasiswa() {
